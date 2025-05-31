@@ -1,10 +1,9 @@
 // pitchyをESモジュールとしてインポート
 import { PitchDetector as Pitchy } from 'https://esm.sh/pitchy@4';
 
-// 2. This code loads the IFrame Player API code asynchronously.
+// YouTube IFrame Player API は script タグで呼び出すと onYouTubeIframeAPIReady の呼び出しタイミングが合わないためこのようにしている。
+// https://d.ballade.jp/2022/04/yt-iframe-api-with-esm.html
 var tag = document.createElement('script');
-
-// モジュールのインポートは従来のまま
 tag.src = "https://www.youtube.com/iframe_api";
 var firstScriptTag = document.getElementsByTagName('script')[0];
 firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
