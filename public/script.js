@@ -91,7 +91,6 @@ function init() {
         return;
     }
 
-
     // マイク入力のセットアップを試みる
     setupMicrophone();
 
@@ -155,7 +154,6 @@ async function setupMicrophone() {
         // analyserNode.connect(audioContext.destination); // デバッグ用: マイク入力をスピーカーに出力
 
         // pitchyの初期化
-        // Pitchy.createDetector は存在しないため、Pitchy.forFloat32Array を使用
         pitchDetector = Pitchy.forFloat32Array(analyserNode.fftSize);
         pitchDetector.minVolumeDecibels = -20;
 
@@ -174,6 +172,8 @@ async function setupMicrophone() {
 
 /**
  * YouTube IFrame Player APIが準備完了したときに呼び出される関数
+ * ESM として作成しているため、YouTube IFrame Player API から自動で呼び出される関数は window にぶら下げておく
+ * https://d.ballade.jp/2022/04/yt-iframe-api-with-esm.html
  */
 window.onYouTubeIframeAPIReady = () => {
     console.log('YouTube IFrame API is ready.');
@@ -310,6 +310,7 @@ function detectPitch() {
     const [pitch, clarity] = pitchDetector.findPitch(pitchBuffer, audioContext.sampleRate); // ピッチと明瞭度を検出
 
     console.log(`Detected pitch: ${pitch} Hz, Clarity: ${clarity}`);
+
     // ある程度の明瞭度がある場合のみピッチを処理
     if (clarity > 0.9 && pitch > 0) { // clarityの閾値を調整
         const midiNote = frequencyToMidiNote(pitch);
