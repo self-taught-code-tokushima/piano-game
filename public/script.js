@@ -46,6 +46,15 @@ const detectedPitchDisplay = document.getElementById('detected-pitch');
 const messageBox = document.getElementById('message-box');
 const messageContent = document.getElementById('message-content');
 const messageCloseButton = document.getElementById('message-close-button');
+const midiSoundToggle = document.getElementById('midi-sound-toggle');
+
+// MIDI再生用の状態管理
+let isMidiSoundOn = false;
+let activeNotes = new Set();
+
+// Tone.js Sampler（ピアノ音源）
+let pianoSampler;
+let samplerLoaded = false;
 
 /**
  * メッセージボックスを表示する関数
@@ -77,6 +86,7 @@ function init() {
     midiFileInput.addEventListener('change', handleMidiFile);
     playPauseButton.addEventListener('click', togglePlayPause);
     youtubeIdInput.addEventListener('input', checkCanPlay); // YouTube ID入力時に再生ボタンの活性状態をチェック
+    midiSoundToggle.addEventListener('click', toggleMidiSound);
 
     // Web Audio APIの初期化
     try {
@@ -96,6 +106,8 @@ function init() {
     // YouTube APIの準備は onYouTubeIframeAPIReady で行われる
     // playPauseButton.disabled は、MIDIとYouTube IDが揃ってから有効にする
     checkCanPlay();
+
+    setupPianoSampler();
 }
 
 /**
@@ -274,9 +286,9 @@ function checkCanPlay() {
     const isMicrophoneReady = !!pitchDetector; // pitchDetectorが初期化されていればマイクは準備完了
 
     console.log(`Can play: MIDI=${hasMidi}, YouTube ID=${hasYouTubeId}, YouTube Player Ready=${isYoutubePlayerReady}, Microphone Ready=${isMicrophoneReady}`);
-    playPauseButton.disabled = !(hasMidi && hasYouTubeId && isYoutubePlayerReady && isMicrophoneReady);
+    playPauseButton.disabled = !(hasMidi && hasYouTubeId && isYoutubePlayerReady && isMicrophoneReady && samplerLoaded);
+    midiSoundToggle.disabled = !(hasMidi && hasYouTubeId && isYoutubePlayerReady && isMicrophoneReady && samplerLoaded);
 }
-
 
 /**
  * ピッチ検出を開始する
@@ -343,7 +355,7 @@ function frequencyToMidiNote(frequency) {
  * メインゲームループを開始する
  */
 function startGameLoop() {
-    if (gameLoopIntervalId) return; // 既に開始されている場合は何もしない
+    if (gameLoopIntervalId) return;
     gameLoopIntervalId = setInterval(gameLoop, GAME_LOOP_INTERVAL_MS);
     console.log('Game loop started.');
 }
@@ -357,6 +369,7 @@ function stopGameLoop() {
         gameLoopIntervalId = null;
         console.log('Game loop stopped.');
     }
+    stopAllMidiNotes();
 }
 
 /**
@@ -366,11 +379,34 @@ function stopGameLoop() {
 function gameLoop() {
     if (!isPlaying || !midiData.length || !youtubePlayer) return;
 
-    const currentTime = getCurrentYouTubeTime(); // YouTubeの現在の再生時間（秒）
-    const audioContextTime = audioContext.currentTime; // Web Audio APIの現在の時間（秒）
+    const currentTime = getCurrentYouTubeTime();
+    const audioContextTime = audioContext.currentTime;
+
+    // MIDIノート再生処理
+    if (isMidiSoundOn) {
+        // 今再生すべきノート
+        const notesShouldBeOn = new Set(
+            midiData
+                .filter(note => (currentTime >= note.startTime) && (currentTime < note.endTime))
+                .map(note => midiNoteToNoteName(note.noteNumber))
+        );
+        // 発音すべきノートでまだ鳴っていないものだけ発音
+        for (const noteName of notesShouldBeOn) {
+            if (!activeNotes.has(noteName)) {
+                playMidiNote(noteName);
+            }
+        }
+        // もう発音すべきでないノートは止める
+        for (const noteName of Array.from(activeNotes)) {
+            if (!notesShouldBeOn.has(noteName)) {
+                stopMidiNote(noteName);
+            }
+        }
+    } else {
+        stopAllMidiNotes();
+    }
 
     // 期待されるノートを特定
-    // 現在の再生時間±許容範囲に開始時間があるノートを探す
     expectedNotes = midiData.filter(note => {
         const startMs = note.startTime * 1000;
         const currentMs = currentTime * 1000;
@@ -449,4 +485,89 @@ function updateFeedback(isCorrect, expectedNote, userNote) {
 function updateScore(points) {
     currentScore += points;
     scoreDisplay.textContent = currentScore;
+}
+
+function toggleMidiSound() {
+    isMidiSoundOn = !isMidiSoundOn;
+    midiSoundToggle.textContent = isMidiSoundOn ? 'MIDI音をOFF' : 'MIDI音をON';
+    if (!isMidiSoundOn) {
+        stopAllMidiNotes();
+    }
+}
+
+function stopAllMidiNotes() {
+    if (pianoSampler) {
+        for (const noteName of activeNotes) {
+            pianoSampler.triggerRelease(noteName);
+        }
+    }
+    activeNotes.clear();
+}
+
+function playMidiNote(noteName, velocity = 0.8) {
+    if (!pianoSampler || !samplerLoaded) return;
+    if (!activeNotes.has(noteName)) {
+        pianoSampler.triggerAttack(noteName, undefined, velocity);
+        activeNotes.add(noteName);
+    }
+}
+
+function stopMidiNote(noteName) {
+    if (!pianoSampler || !samplerLoaded) return;
+    if (activeNotes.has(noteName)) {
+        pianoSampler.triggerRelease(noteName);
+        activeNotes.delete(noteName);
+    }
+}
+
+function midiNoteToNoteName(noteNumber) {
+    // MIDIノート番号を "C4" などのノート名に変換
+    const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const octave = Math.floor(noteNumber / 12) - 1;
+    const name = noteNames[noteNumber % 12];
+    return name + octave;
+}
+
+async function setupPianoSampler() {
+    // サンプル音源は https://tonejs.github.io/audio/salamander/ から取得
+    pianoSampler = new Tone.Sampler({
+        urls: {
+					A0: "A0.mp3",
+					C1: "C1.mp3",
+					"D#1": "Ds1.mp3",
+					"F#1": "Fs1.mp3",
+					A1: "A1.mp3",
+					C2: "C2.mp3",
+					"D#2": "Ds2.mp3",
+					"F#2": "Fs2.mp3",
+					A2: "A2.mp3",
+					C3: "C3.mp3",
+					"D#3": "Ds3.mp3",
+					"F#3": "Fs3.mp3",
+					A3: "A3.mp3",
+					C4: "C4.mp3",
+					"D#4": "Ds4.mp3",
+					"F#4": "Fs4.mp3",
+					A4: "A4.mp3",
+					C5: "C5.mp3",
+					"D#5": "Ds5.mp3",
+					"F#5": "Fs5.mp3",
+					A5: "A5.mp3",
+					C6: "C6.mp3",
+					"D#6": "Ds6.mp3",
+					"F#6": "Fs6.mp3",
+					A6: "A6.mp3",
+					C7: "C7.mp3",
+					"D#7": "Ds7.mp3",
+					"F#7": "Fs7.mp3",
+					A7: "A7.mp3",
+					C8: "C8.mp3",
+				},
+        release: 1,
+        baseUrl: "https://tonejs.github.io/audio/salamander/",
+        onload: () => {
+            samplerLoaded = true;
+            console.log('Piano sampler loaded');
+        }
+    }).toDestination();
 }

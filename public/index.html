@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ピアノチャレンジ！</title>
+    <script src="https://unpkg.com/tone@14.8.49/build/Tone.js"></script>
+    <!-- Tone.js Instruments: Piano サンプル音源 -->
+    <!-- サンプル音源は https://gleitz.github.io/midi-js-soundfonts/ なども利用可能 -->
 </head>
 <body>
     <header>
@@ -30,6 +33,7 @@
             </div>
 
             <button id="play-pause-button" disabled>▶️ 再生</button>
+            <button id="midi-sound-toggle" disabled>MIDI音をON</button>
         </div>
 
         <div id="feedback-area">
